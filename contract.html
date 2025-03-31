@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>智能合同管理工具</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            max-width: 1000px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #f5f7fa;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #2c3e50;
+        }
+
+        .contract-form {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 2px 15px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        input, select, textarea {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        button {
+            background: #3498db;
+            color: white;
+            padding: 12px 25px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        button:hover {
+            background: #2980b9;
+        }
+
+        .contract-list {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 15px rgba(0,0,0,0.1);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+
+        .reminder-active {
+            color: #27ae60;
+            font-weight: bold;
+        }
+
+        .reminder-inactive {
+            color: #e74c3c;
+        }
+
+        .alert-banner {
+            padding: 15px;
+            background: #f8d7da;
+            color: #721c24;
+            border-radius: 5px;
+            margin: 10px 0;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>智能合同管理系统</h1>
+        <p>到期自动提醒功能（每日09:00自动检查）</p>
+        <div class="alert-banner" id="reminderAlert"></div>
+    </div>
+
+    <div class="contract-form">
+        <h2>添加新合同</h2>
+        <div class="form-grid">
+            <div>
+                <label>合同名称</label>
+                <input type="text" id="contractName" required>
+            </div>
+            <div>
+                <label>签约方</label>
+                <input type="text" id="contractParty" required>
+            </div>
+            <div>
+                <label>开始日期</label>
+                <input type="date" id="startDate" required>
+            </div>
+            <div>
+                <label>结束日期</label>
+                <input type="date" id="endDate" required>
+            </div>
+            <div>
+                <label>提醒日期</label>
+                <input type="date" id="reminderDate" required>
+            </div>
+            <div>
+                <label>合同金额</label>
+                <input type="number" id="contractAmount" step="0.01">
+            </div>
+        </div>
+        <div>
+            <label>备注说明</label>
+            <textarea id="contractNotes" rows="3"></textarea>
+        </div>
+        <button onclick="addContract()">添加合同</button>
+    </div>
+
+    <div class="contract-list">
+        <h2>合同清单</h2>
+        <table id="contractTable">
+            <thead>
+                <tr>
+                    <th>合同名称</th>
+                    <th>签约方</th>
+                    <th>结束日期</th>
+                    <th>剩余天数</th>
+                    <th>提醒状态</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="contractBody">
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        // 初始化本地存储
+        let contracts = JSON.parse(localStorage.getItem('contracts')) || [];
+        
+        // 初始化检查提醒
+        setInterval(checkReminders, 1000 * 60 * 60); // 每小时检查一次
+        
+        function addContract() {
+            const contract = {
+                id: Date.now(),
+                name: document.getElementById('contractName').value,
+                party: document.getElementById('contractParty').value,
+                startDate: document.getElementById('startDate').value,
+                endDate: document.getElementById('endDate').value,
+                reminderDate: document.getElementById('reminderDate').value,
+                amount: document.getElementById('contractAmount').value || 0,
+                notes: document.getElementById('contractNotes').value,
+                notified: false
+            };
+
+            contracts.push(contract);
+            localStorage.setItem('contracts', JSON.stringify(contracts));
+            renderContracts();
+            clearForm();
+        }
+
+        function renderContracts() {
+            const tbody = document.getElementById('contractBody');
+            tbody.innerHTML = '';
+            
+            contracts.forEach(contract => {
+                const remainingDays = getRemainingDays(contract.endDate);
+                const reminderStatus = getReminderStatus(contract);
+                
+                const row = `
+                    <tr>
+                        <td>${contract.name}</td>
+                        <td>${contract.party}</td>
+                        <td>${formatDate(contract.endDate)}</td>
+                        <td>${remainingDays}</td>
+                        <td class="${reminderStatus.class}">${reminderStatus.text}</td>
+                        <td>
+                            <button onclick="deleteContract(${contract.id})">删除</button>
+                            ${reminderStatus.alert || ''}
+                        </td>
+                    </tr>
+                `;
+                tbody.innerHTML += row;
+            });
+        }
+
+        function checkReminders() {
+            const now = new Date();
+            contracts.forEach(contract => {
+                const reminderDate = new Date(contract.reminderDate);
+                if (!contract.notified && now >= reminderDate) {
+                    showReminderAlert(contract);
+                    contract.notified = true;
+                    localStorage.setItem('contracts', JSON.stringify(contracts));
+                }
+            });
+            renderContracts();
+        }
+
+        function showReminderAlert(contract) {
+            const alertDiv = document.getElementById('reminderAlert');
+            alertDiv.style.display = 'block';
+            alertDiv.innerHTML = `
+                ⏰ 合同提醒：${contract.name} 即将到期！
+                <a href="${generateOutlookLink(contract)}" style="margin-left:15px">
+                    发送提醒邮件
+                </a>
+            `;
+        }
+
+        function generateOutlookLink(contract) {
+            const subject = `合同到期提醒：${contract.name}`;
+            const body = `尊敬的${contract.party}：%0D%0A%0D%0A` +
+                         `您的合同 ${contract.name} 将于 ${contract.endDate} 到期。%0D%0A` +
+                         `请及时处理后续事宜。%0D%0A%0D%0A` + 
+                         `备注：${contract.notes || '无'}`;
+            
+            return `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+        }
+
+        function deleteContract(id) {
+            contracts = contracts.filter(c => c.id !== id);
+            localStorage.setItem('contracts', JSON.stringify(contracts));
+            renderContracts();
+        }
+
+        // 辅助函数
+        function formatDate(dateStr) {
+            return new Date(dateStr).toLocaleDateString('zh-CN');
+        }
+
+        function getRemainingDays(endDate) {
+            const end = new Date(endDate);
+            const now = new Date();
+            const diff = end - now;
+            return Math.ceil(diff / (1000 * 60 * 60 * 24));
+        }
+
+        function getReminderStatus(contract) {
+            if (contract.notified) {
+                return {
+                    class: 'reminder-active',
+                    text: '已提醒',
+                    alert: '<button onclick="resendReminder('+contract.id+')">重新发送</button>'
+                };
+            }
+            return new Date() >= new Date(contract.reminderDate) ? 
+                { class: 'reminder-active', text: '待处理' } : 
+                { class: 'reminder-inactive', text: '未到期' };
+        }
+
+        function clearForm() {
+            document.getElementById('contractForm').reset();
+        }
+
+        // 初始渲染
+        renderContracts();
+        checkReminders(); // 页面加载时立即检查
+    </script>
+</body>
+</html>
